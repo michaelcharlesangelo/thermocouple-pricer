@@ -25,6 +25,13 @@ export interface StockPrice {
   idrPerMeter: number; // 0 = no stock price held, always use market rate
 }
 
+export interface ExtraItem {
+  id: string;
+  name: string;
+  priceIdr: number; // added to LOCAL price, 0 if not applicable
+  priceUsd: number; // added to EXPORT price, 0 if not applicable
+}
+
 // The +60mm compensates for the extra wire that runs up inside the
 // thermocouple head, beyond the length below head (LBH) that's actually
 // specified. It's physical, not a business assumption - fixed, not
@@ -39,6 +46,7 @@ export interface PricingConfig {
   standardPartsIdr: number; // default 1_200_000
   defaultSpoolQtyM: number; // assumed order size per spec, default 10 (-> tier "under25")
   stockPrices: StockPrice[];
+  extras: ExtraItem[];
 }
 
 export const DEFAULT_CONFIG: PricingConfig = {
@@ -65,6 +73,10 @@ export const DEFAULT_CONFIG: PricingConfig = {
     { key: "B-0.45", idrPerMeter: 0 },
     { key: "B-0.50", idrPerMeter: 0 },
   ],
+  extras: [
+    { id: "flange", name: "Flange", priceIdr: 500_000, priceUsd: 0 },
+    { id: "sic", name: "Silicon Carbide (SiC) protection tube", priceIdr: 0, priceUsd: 200 },
+  ],
 };
 
 export interface QuoteInput {
@@ -74,6 +86,8 @@ export interface QuoteInput {
   configuration: "simplex" | "duplex";
   spoolQtyM?: number; // overrides config.defaultSpoolQtyM, affects manufacturing tier
   target: "local" | "export";
+  extraIds: string[]; // which configured extras (from admin) are selected
+  customExtra?: { label: string; amount: number }; // one-off item typed in on the calculator, not saved
 }
 
 export interface QuoteBreakdown {
@@ -90,6 +104,9 @@ export interface QuoteBreakdown {
   scaledWireCost: number; // full item cost: rate x handling factor x (length+60)/1000, x2 runs if duplex
   afterProfitOrMargin: number;
   standardPartsCost: number;
+  extrasApplied: ExtraItem[];
+  customExtra: { label: string; amount: number } | null;
+  extrasCost: number;
   finalPrice: number;
   currency: "IDR" | "USD";
 }
@@ -183,7 +200,17 @@ export function calculateQuote(
     standardPartsCost = config.standardPartsIdr / rates.usdIdrRate;
   }
 
-  const finalPrice = afterProfitOrMargin + standardPartsCost;
+  const finalPriceBeforeExtras = afterProfitOrMargin + standardPartsCost;
+
+  const extrasApplied = config.extras.filter((e) => input.extraIds.includes(e.id));
+  const configuredExtrasCost = extrasApplied.reduce(
+    (sum, e) => sum + (input.target === "local" ? e.priceIdr : e.priceUsd),
+    0
+  );
+  const customExtra = input.customExtra && input.customExtra.amount > 0 ? input.customExtra : null;
+  const extrasCost = configuredExtrasCost + (customExtra?.amount ?? 0);
+
+  const finalPrice = finalPriceBeforeExtras + extrasCost;
 
   return {
     spec,
@@ -199,6 +226,9 @@ export function calculateQuote(
     scaledWireCost,
     afterProfitOrMargin,
     standardPartsCost,
+    extrasApplied,
+    customExtra,
+    extrasCost,
     finalPrice,
     currency: input.target === "local" ? "IDR" : "USD",
   };
