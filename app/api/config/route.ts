@@ -10,7 +10,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as PricingConfig;
   // Basic shape validation - keep it forgiving since this is an internal tool
-  if (!body || typeof body !== "object" || !Array.isArray(body.extras) || !Array.isArray(body.stockPrices)) {
+  if (!body || typeof body !== "object" || !Array.isArray(body.stockPrices)) {
     return NextResponse.json({ error: "Invalid config shape" }, { status: 400 });
   }
   await setConfig(body);
