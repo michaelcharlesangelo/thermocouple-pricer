@@ -1,7 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MarketRates, PricingConfig, ExtraItem, StockPrice } from "@/lib/pricing";
+import { MarketRates, PricingConfig, StockPrice } from "@/lib/pricing";
+
+function FormattedNumberInput({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  // Displays with thousand separators (e.g. 5.000.000) while still storing
+  // a plain number underneath - parses out any non-digit characters typed.
+  const [text, setText] = useState(value.toLocaleString("id-ID"));
+
+  useEffect(() => {
+    setText(value.toLocaleString("id-ID"));
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d]/g, "");
+        const n = raw === "" ? 0 : Number(raw);
+        setText(n.toLocaleString("id-ID"));
+        onChange(n);
+      }}
+    />
+  );
+}
 
 export default function AdminPage() {
   const [rates, setRates] = useState<MarketRates | null>(null);
@@ -36,7 +66,7 @@ export default function AdminPage() {
     const data = await res.json();
     setRates(data.rates);
     setMessage(
-      data.warnings?.length ? `Refreshed with warnings: ${data.warnings.join(" | ")}` : "Refreshed from live sources."
+      data.warnings?.length ? `Refreshed with notes: ${data.warnings.join(" | ")}` : "Refreshed from live sources."
     );
     setRefreshing(false);
   }
@@ -67,22 +97,6 @@ export default function AdminPage() {
     setConfig({ ...config, stockPrices });
   }
 
-  function updateExtra(id: string, patch: Partial<ExtraItem>) {
-    if (!config) return;
-    setConfig({ ...config, extras: config.extras.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
-  }
-
-  function addExtra() {
-    if (!config) return;
-    const id = "extra_" + Date.now();
-    setConfig({ ...config, extras: [...config.extras, { id, name: "New item", priceIdr: 0, priceUsd: 0 }] });
-  }
-
-  function removeExtra(id: string) {
-    if (!config) return;
-    setConfig({ ...config, extras: config.extras.filter((e) => e.id !== id) });
-  }
-
   const stockKeys = [
     "S-0.30", "S-0.40", "S-0.50",
     "R-0.30", "R-0.40", "R-0.50",
@@ -101,9 +115,9 @@ export default function AdminPage() {
       <div className="card">
         <h2>Market rates</h2>
         <p className="subtle">
-          "Refresh rates" attempts to auto-fetch Pt/Rh spot price and FX rates from live sources.
-          If that fails (no API key configured, or the source is unreachable), enter the figures
-          manually below - manual values are used until the next refresh.
+          "Refresh rates" auto-fetches USD/EUR and USD/IDR live (no signup needed). Platinum and Rhodium
+          are entered manually below unless you've configured a Pt/Rh auto-fetch key (see README) - manual
+          values are used until the next refresh either way.
         </p>
         {rates && (
           <div className="grid">
@@ -123,7 +137,7 @@ export default function AdminPage() {
                 onChange={(e) => setRates({ ...rates, usdEurRate: Number(e.target.value) })} />
             </div>
             <div className="field">
-              <label>USD/IDR rate (klikBCA kurs jual)</label>
+              <label>USD/IDR rate</label>
               <input type="number" value={rates.usdIdrRate}
                 onChange={(e) => setRates({ ...rates, usdIdrRate: Number(e.target.value) })} />
             </div>
@@ -151,11 +165,6 @@ export default function AdminPage() {
                   onChange={(e) => setConfig({ ...config, wireHandlingFactor: Number(e.target.value) })} />
               </div>
               <div className="field">
-                <label>Length allowance (mm)</label>
-                <input type="number" value={config.lengthAllowanceMm}
-                  onChange={(e) => setConfig({ ...config, lengthAllowanceMm: Number(e.target.value) })} />
-              </div>
-              <div className="field">
                 <label>Local profit (%)</label>
                 <input type="number" step="0.01" value={config.localProfitPct * 100}
                   onChange={(e) => setConfig({ ...config, localProfitPct: Number(e.target.value) / 100 })} />
@@ -174,6 +183,7 @@ export default function AdminPage() {
                 <label>Default assumed order size (m)</label>
                 <input type="number" value={config.defaultSpoolQtyM}
                   onChange={(e) => setConfig({ ...config, defaultSpoolQtyM: Number(e.target.value) })} />
+                <p className="subtle" style={{ marginTop: 4 }}>Bigger orders unlock a better manufacturing tier - raise this if quoting a large order.</p>
               </div>
             </div>
           </div>
@@ -190,32 +200,13 @@ export default function AdminPage() {
                     <tr key={key}>
                       <td>{key}</td>
                       <td>
-                        <input type="number" value={stock?.idrPerMeter ?? 0}
-                          onChange={(e) => updateStock(key, Number(e.target.value))} />
+                        <FormattedNumberInput value={stock?.idrPerMeter ?? 0} onChange={(n) => updateStock(key, n)} />
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          </div>
-
-          <div className="card">
-            <h2>Additional items ("tambahan")</h2>
-            <table className="admin-table">
-              <thead><tr><th>Name</th><th>Local price (IDR)</th><th>Export price (USD)</th><th></th></tr></thead>
-              <tbody>
-                {config.extras.map((extra) => (
-                  <tr key={extra.id}>
-                    <td><input type="text" value={extra.name} onChange={(e) => updateExtra(extra.id, { name: e.target.value })} /></td>
-                    <td><input type="number" value={extra.priceIdr} onChange={(e) => updateExtra(extra.id, { priceIdr: Number(e.target.value) })} /></td>
-                    <td><input type="number" value={extra.priceUsd} onChange={(e) => updateExtra(extra.id, { priceUsd: Number(e.target.value) })} /></td>
-                    <td><button className="btn secondary" onClick={() => removeExtra(extra.id)}>Remove</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <button className="btn secondary" style={{ marginTop: 10 }} onClick={addExtra}>+ Add item</button>
           </div>
 
           <button className="btn" onClick={saveConfig} disabled={savingConfig}>
