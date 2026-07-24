@@ -44,10 +44,10 @@ export async function getConfig(): Promise<PricingConfig> {
   const stored = await getValue<(Record<string, unknown>) | null>(CONFIG_KEY, null);
   if (!stored) return DEFAULT_CONFIG;
 
-  // Migrate configs saved before this update: the old single
-  // "wireHandlingFactor" becomes both new market/stock factors if present.
-  // Now-removed fields (lengthAllowanceMm, extras) are simply never copied
-  // over below, rather than needing to be explicitly deleted.
+  // Migrate configs saved before the market/stock handling-factor split: the
+  // old single "wireHandlingFactor" becomes both new fields if present.
+  // lengthAllowanceMm was removed in an earlier update and is simply never
+  // copied over below.
   const legacyFactor = typeof stored.wireHandlingFactor === "number" ? (stored.wireHandlingFactor as number) : undefined;
 
   const num = (v: unknown, fallback: number): number => (typeof v === "number" ? v : fallback);
@@ -68,6 +68,9 @@ export async function getConfig(): Promise<PricingConfig> {
     stockPrices: Array.isArray(stored.stockPrices)
       ? (stored.stockPrices as PricingConfig["stockPrices"])
       : DEFAULT_CONFIG.stockPrices,
+    extras: Array.isArray(stored.extras)
+      ? (stored.extras as PricingConfig["extras"])
+      : DEFAULT_CONFIG.extras,
   };
 
   return merged;
