@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getRates, setRates } from "@/lib/store";
-import { fetchLiveRates, mergeIntoRates } from "@/lib/fetchRates";
+import { fetchLiveFx, mergeFxIntoRates } from "@/lib/fetchRates";
 
 export async function POST() {
   const previous = await getRates();
-  const fetched = await fetchLiveRates();
-  const merged = mergeIntoRates(previous, fetched);
+  const fx = await fetchLiveFx();
+  const merged = mergeFxIntoRates(previous, fx);
   await setRates(merged);
-  return NextResponse.json({ rates: merged, warnings: fetched.errors });
+  return NextResponse.json({ rates: merged, warnings: fx.error ? [fx.error] : [] });
 }
