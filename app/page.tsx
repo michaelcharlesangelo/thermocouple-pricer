@@ -66,6 +66,10 @@ export default function Home() {
   const [breakdown, setBreakdown] = useState<QuoteBreakdown | null>(null);
   const [computing, setComputing] = useState(false);
 
+  const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+  const [customLabel, setCustomLabel] = useState("");
+  const [customAmount, setCustomAmount] = useState<number>(0);
+
   const availableDiameters = useMemo(
     () =>
       WIRE_TABLE.filter((w) => w.type === type && SHOWN_DIAMETERS.includes(w.diameterMm)).map(
@@ -120,6 +124,8 @@ export default function Home() {
           configuration,
           spoolQtyM: config?.defaultSpoolQtyM,
           target,
+          extraIds: selectedExtras,
+          customExtra: customAmount > 0 ? { label: customLabel || "Custom", amount: customAmount } : undefined,
         }),
       });
       const data = await res.json();
@@ -132,7 +138,7 @@ export default function Home() {
   useEffect(() => {
     if (rates && config) computeQuote();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rates, config, type, diameter, lengthMm, configuration, target]);
+  }, [rates, config, type, diameter, lengthMm, configuration, target, selectedExtras, customAmount, customLabel]);
 
   return (
     <>
@@ -146,15 +152,15 @@ export default function Home() {
 
       <div className="card">
         <div className="rate-strip">
-          <span>Pt: <b>${rates?.platinumUsdPerOz ?? "-"}/oz</b></span>
-          <span>Rh: <b>${rates?.rhodiumUsdPerOz ?? "-"}/oz</b></span>
+          <span>Pt: <b>${rates?.platinumUsdPerOz ?? "-"}/oz</b> <span className="subtle">(admin-set)</span></span>
+          <span>Rh: <b>${rates?.rhodiumUsdPerOz ?? "-"}/oz</b> <span className="subtle">(admin-set)</span></span>
           <span>USD/EUR: <b>{rates?.usdEurRate ?? "-"}</b></span>
           <span>USD/IDR: <b>{rates?.usdIdrRate?.toLocaleString("id-ID") ?? "-"}</b></span>
           <span className="subtle">
-            {rates ? `updated ${new Date(rates.updatedAt).toLocaleString()} (${rates.source})` : ""}
+            {rates ? `updated ${new Date(rates.updatedAt).toLocaleString()}` : ""}
           </span>
           <button className="btn secondary" onClick={refreshRates} disabled={refreshing} style={{ marginLeft: "auto" }}>
-            {refreshing ? "Refreshing..." : "Refresh rates"}
+            {refreshing ? "Refreshing..." : "Refresh FX rate"}
           </button>
         </div>
         {warnings.length > 0 && (
@@ -162,6 +168,9 @@ export default function Home() {
             {warnings.map((w, i) => <div key={i}>{w}</div>)}
           </div>
         )}
+        <p className="subtle" style={{ marginTop: 10 }}>
+          For urgent inquiry, please contact Admin for price changes.
+        </p>
       </div>
 
       <div className="card">
@@ -200,6 +209,49 @@ export default function Home() {
               <button className={target === "export" ? "active" : ""} onClick={() => setTarget("export")}>Export (USD)</button>
             </div>
           </div>
+        </div>
+
+        {config && config.extras.length > 0 && (
+          <div className="field" style={{ marginTop: 10 }}>
+            <label>Additional items</label>
+            {config.extras.map((extra) => (
+              <div className="checkbox-row" key={extra.id}>
+                <input
+                  type="checkbox"
+                  checked={selectedExtras.includes(extra.id)}
+                  onChange={() =>
+                    setSelectedExtras((prev) =>
+                      prev.includes(extra.id) ? prev.filter((x) => x !== extra.id) : [...prev, extra.id]
+                    )
+                  }
+                />
+                <span>
+                  {extra.name}{" "}
+                  <span className="subtle">
+                    ({extra.priceIdr > 0 ? fmtIdr(extra.priceIdr) : ""}
+                    {extra.priceIdr > 0 && extra.priceUsd > 0 ? " / " : ""}
+                    {extra.priceUsd > 0 ? fmtUsd(extra.priceUsd) : ""})
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="field" style={{ marginTop: 10 }}>
+          <label>Custom item (one-off, not saved)</label>
+          <div className="grid" style={{ gridTemplateColumns: "2fr 1fr" }}>
+            <input
+              type="text"
+              placeholder="Description (optional)"
+              value={customLabel}
+              onChange={(e) => setCustomLabel(e.target.value)}
+            />
+            <BlankableNumberInput value={customAmount} onChange={setCustomAmount} min={0} />
+          </div>
+          <p className="subtle" style={{ marginTop: 4 }}>
+            Amount is in {target === "local" ? "IDR" : "USD"} (whichever market is selected above) and applies to this quote only.
+          </p>
         </div>
       </div>
 
@@ -262,6 +314,18 @@ export default function Home() {
                   <td>Standard parts (head, holding tube, ceramic tube, cement)</td>
                   <td>{target === "local" ? fmtIdr(breakdown.standardPartsCost) : fmtUsd(breakdown.standardPartsCost)}</td>
                 </tr>
+                {breakdown.extrasApplied.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.name}</td>
+                    <td>{target === "local" ? fmtIdr(e.priceIdr) : fmtUsd(e.priceUsd)}</td>
+                  </tr>
+                ))}
+                {breakdown.customExtra && (
+                  <tr>
+                    <td>{breakdown.customExtra.label}</td>
+                    <td>{target === "local" ? fmtIdr(breakdown.customExtra.amount) : fmtUsd(breakdown.customExtra.amount)}</td>
+                  </tr>
+                )}
                 <tr className="total">
                   <td>Total</td>
                   <td>{breakdown.currency === "IDR" ? fmtIdr(breakdown.finalPrice) : fmtUsd(breakdown.finalPrice)}</td>
