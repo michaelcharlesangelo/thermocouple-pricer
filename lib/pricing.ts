@@ -15,16 +15,9 @@ export interface MarketRates {
   platinumUsdPerOz: number;
   rhodiumUsdPerOz: number;
   usdEurRate: number; // EUR per 1 USD  (e.g. 0.8748)
-  usdIdrRate: number; // IDR per 1 USD  (klikBCA "kurs jual")
+  usdIdrRate: number; // IDR per 1 USD
   updatedAt: string; // ISO timestamp
   source: "auto" | "manual";
-}
-
-export interface ExtraItem {
-  id: string;
-  name: string;
-  priceIdr: number; // added to LOCAL price, 0 if not applicable
-  priceUsd: number; // added to EXPORT price, 0 if not applicable
 }
 
 export interface StockPrice {
@@ -32,28 +25,27 @@ export interface StockPrice {
   idrPerMeter: number; // 0 = no stock price held, always use market rate
 }
 
+// The +60mm compensates for the extra wire that runs up inside the
+// thermocouple head, beyond the length below head (LBH) that's actually
+// specified. It's physical, not a business assumption - fixed, not
+// admin-editable.
+export const HEAD_ALLOWANCE_MM = 60;
+
 export interface PricingConfig {
-  wireHandlingFactor: number; // "Table + X%" -> stored as multiplier, default 1.20
-  lengthAllowanceMm: number; // the "+60" added to LBH length, default 60
+  wireHandlingFactor: number; // default 1.20
   localProfitPct: number; // default 0.15
   exportMarginPct: number; // default 0.35
   standardPartsIdr: number; // default 1_200_000
   defaultSpoolQtyM: number; // assumed order size per spec, default 10 (-> tier "under25")
-  extras: ExtraItem[];
   stockPrices: StockPrice[];
 }
 
 export const DEFAULT_CONFIG: PricingConfig = {
   wireHandlingFactor: 1.2,
-  lengthAllowanceMm: 60,
   localProfitPct: 0.15,
   exportMarginPct: 0.35,
   standardPartsIdr: 1_200_000,
   defaultSpoolQtyM: 10,
-  extras: [
-    { id: "flange", name: "Flange", priceIdr: 500_000, priceUsd: 0 },
-    { id: "sic", name: "Silicon Carbide (SiC) protection tube", priceIdr: 0, priceUsd: 200 },
-  ],
   stockPrices: [
     { key: "S-0.30", idrPerMeter: 4_463_240 },
     { key: "S-0.40", idrPerMeter: 7_779_057 },
@@ -74,7 +66,6 @@ export interface QuoteInput {
   configuration: "simplex" | "duplex";
   spoolQtyM?: number; // overrides config.defaultSpoolQtyM, affects manufacturing tier
   target: "local" | "export";
-  extraIds: string[];
 }
 
 export interface QuoteBreakdown {
@@ -83,24 +74,20 @@ export interface QuoteBreakdown {
   mfgTier: "under25" | "from25to50" | "from50";
   mfgEurPerG: number;
   totalEurPerG: number;
-  marketEurPerMeter: number;
-  marketRatePerMeter: number; // IDR (local) or USD (export), before duplex
+  marketRatePerMeter: number; // in the DISPLAY currency (IDR local / USD export), after duplex
   duplexMultiplier: number;
-  marketRateFinal: number; // after duplex multiplier
-  stockRatePerMeter: number | null; // only meaningful for local
-  wireRateUsed: number; // max(market, stock)
-  wireRateSource: "market" | "stock";
-  scaledWireCost: number; // wireRateUsed * handlingFactor * (length+allowance)/1000
+  stockRatePerMeter: number | null; // in the DISPLAY currency, if a stock price is held for this spec
+  wireRateUsed: number; // whichever of market/stock was chosen, in display currency
+  wireRateSource: "market" | "stock"; // decided once in IDR, applied consistently to both local & export
+  scaledWireCost: number; // wireRateUsed * handlingFactor * (length+60)/1000 (x2 effectively for duplex)
   afterProfitOrMargin: number;
   standardPartsCost: number;
-  extrasCost: number;
-  extrasApplied: ExtraItem[];
   finalPrice: number;
   currency: "IDR" | "USD";
 }
 
 // ---------------------------------------------------------------------------
-// Core calculation, ported from the Excel formulas
+// Core calculation
 // ---------------------------------------------------------------------------
 
 const TROY_OUNCE_IN_GRAMS = 31.1035;
@@ -117,54 +104,57 @@ export function calculateQuote(
 
   const alloy = ALLOY_COMPOSITION[input.type];
 
-  // Precious metal price per gram of alloy, in EUR (Excel col E)
   const ptEurPerG = (rates.platinumUsdPerOz * rates.usdEurRate) / TROY_OUNCE_IN_GRAMS;
   const rhEurPerG = (rates.rhodiumUsdPerOz * rates.usdEurRate) / TROY_OUNCE_IN_GRAMS;
   const metalEurPerG =
     alloy.ptFraction * ptEurPerG * METAL_PRICE_CORRECTION +
     alloy.rhFraction * rhEurPerG * METAL_PRICE_CORRECTION;
 
-  // Manufacturing tier, based on assumed spool/order quantity (Excel col F/G/H selected by K)
   const spoolQty = input.spoolQtyM ?? config.defaultSpoolQtyM;
   const mfgTier: QuoteBreakdown["mfgTier"] =
     spoolQty < 25 ? "under25" : spoolQty < 50 ? "from25to50" : "from50";
   const mfgEurPerG = spec.mfgTierEurPerG[mfgTier];
 
-  const totalEurPerG = metalEurPerG + mfgEurPerG; // Excel col I
-  const marketEurPerMeter = totalEurPerG * spec.gramsPerMeter; // Excel col AC (Euro/mtr)
+  const totalEurPerG = metalEurPerG + mfgEurPerG;
+  const marketEurPerMeter = totalEurPerG * spec.gramsPerMeter;
 
-  const usdPerMeter = marketEurPerMeter / rates.usdEurRate; // Excel col AD
-  // NOTE: preserved exactly as in the source workbook, which multiplies the
-  // Euro/mtr figure directly by the USD/IDR rate (col AE = AC * AG6) rather
-  // than converting through USD first. Kept for parity with existing sold
-  // prices; flag to Michael if this should instead go via USD/mtr.
-  const idrPerMeter = marketEurPerMeter * rates.usdIdrRate; // Excel col AE
-
-  const marketRatePerMeter = input.target === "local" ? idrPerMeter : usdPerMeter;
+  const marketUsdPerMeter = marketEurPerMeter / rates.usdEurRate;
+  // Preserved exactly as in the source workbook: Euro/mtr multiplied
+  // directly by the USD/IDR rate rather than converting through USD first.
+  const marketIdrPerMeter = marketEurPerMeter * rates.usdIdrRate;
 
   const duplexMultiplier = input.configuration === "duplex" ? 2 : 1;
-  const marketRateFinal = marketRatePerMeter * duplexMultiplier;
+  const marketIdrFinal = marketIdrPerMeter * duplexMultiplier;
+  const marketUsdFinal = marketUsdPerMeter * duplexMultiplier;
 
-  // Stock price comparison (local only - take the higher of today's market vs held stock)
-  let stockRatePerMeter: number | null = null;
-  let wireRateUsed = marketRateFinal;
-  let wireRateSource: "market" | "stock" = "market";
-  if (input.target === "local") {
-    const stock = config.stockPrices.find((s) => s.key === specKey(input.type, input.diameterMm));
-    if (stock && stock.idrPerMeter > 0) {
-      stockRatePerMeter = stock.idrPerMeter * duplexMultiplier;
-      if (stockRatePerMeter > marketRateFinal) {
-        wireRateUsed = stockRatePerMeter;
-        wireRateSource = "stock";
-      }
-    }
-  }
+  // Stock is only ever held/priced in IDR, so the "is stock cheaper or
+  // pricier than replacing today" decision is always made in IDR - and
+  // that SAME decision is then applied whether we're quoting local or
+  // export, so both currencies agree on which source was used for a given
+  // spec/length/configuration.
+  const stock = config.stockPrices.find((s) => s.key === specKey(input.type, input.diameterMm));
+  const stockIdrFinal = stock && stock.idrPerMeter > 0 ? stock.idrPerMeter * duplexMultiplier : null;
 
-  // Scale to the actual finished-item length (Excel: (Z+60)/1000 * factor)
+  const wireRateSource: "market" | "stock" =
+    stockIdrFinal !== null && stockIdrFinal > marketIdrFinal ? "stock" : "market";
+
+  const wireRateIdr = wireRateSource === "stock" ? (stockIdrFinal as number) : marketIdrFinal;
+  // Convert the CHOSEN idr rate through today's FX rate for export, so a
+  // "stock" decision shows consistently in USD too, at the going rate.
+  const wireRateUsd = wireRateSource === "stock" ? wireRateIdr / rates.usdIdrRate : marketUsdFinal;
+
+  const marketRatePerMeter = input.target === "local" ? marketIdrFinal : marketUsdFinal;
+  const stockRatePerMeter =
+    stockIdrFinal === null ? null : input.target === "local" ? stockIdrFinal : stockIdrFinal / rates.usdIdrRate;
+  const wireRateUsed = input.target === "local" ? wireRateIdr : wireRateUsd;
+
+  // Scale to the actual finished-item length. The +60mm head allowance is
+  // physical (extra wire routed inside the head) and applies per wire run -
+  // for duplex that's two wire runs, each needing its own +60mm, which is
+  // exactly what the x2 duplexMultiplier above already achieves together
+  // with this per-run length term.
   const scaledWireCost =
-    wireRateUsed *
-    config.wireHandlingFactor *
-    ((input.lengthBelowHeadMm + config.lengthAllowanceMm) / 1000);
+    wireRateUsed * config.wireHandlingFactor * ((input.lengthBelowHeadMm + HEAD_ALLOWANCE_MM) / 1000);
 
   let afterProfitOrMargin: number;
   let standardPartsCost: number;
@@ -176,13 +166,7 @@ export function calculateQuote(
     standardPartsCost = config.standardPartsIdr / rates.usdIdrRate;
   }
 
-  const extrasApplied = config.extras.filter((e) => input.extraIds.includes(e.id));
-  const extrasCost = extrasApplied.reduce(
-    (sum, e) => sum + (input.target === "local" ? e.priceIdr : e.priceUsd),
-    0
-  );
-
-  const finalPrice = afterProfitOrMargin + standardPartsCost + extrasCost;
+  const finalPrice = afterProfitOrMargin + standardPartsCost;
 
   return {
     spec,
@@ -190,18 +174,14 @@ export function calculateQuote(
     mfgTier,
     mfgEurPerG,
     totalEurPerG,
-    marketEurPerMeter,
     marketRatePerMeter,
     duplexMultiplier,
-    marketRateFinal,
     stockRatePerMeter,
     wireRateUsed,
     wireRateSource,
     scaledWireCost,
     afterProfitOrMargin,
     standardPartsCost,
-    extrasCost,
-    extrasApplied,
     finalPrice,
     currency: input.target === "local" ? "IDR" : "USD",
   };
