@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { WIRE_TABLE, ThermocoupleType } from "@/lib/wireData";
-import { MarketRates, PricingConfig, QuoteBreakdown } from "@/lib/pricing";
+import { MarketRates, PricingConfig, QuoteBreakdown, HEAD_ALLOWANCE_MM } from "@/lib/pricing";
 
 const TYPES: ThermocoupleType[] = ["S", "R", "B"];
 
@@ -18,14 +18,13 @@ export default function Home() {
   const [config, setConfig] = useState<PricingConfig | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [showDetails, setShowDetails] = useState(true); // shown by default for now - flip to false later
 
   const [type, setType] = useState<ThermocoupleType>("S");
   const [diameter, setDiameter] = useState<number>(0.3);
   const [lengthMm, setLengthMm] = useState<number>(1000);
   const [configuration, setConfiguration] = useState<"simplex" | "duplex">("simplex");
   const [target, setTarget] = useState<"local" | "export">("local");
-  const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
-  const [spoolQty, setSpoolQty] = useState<number>(10);
 
   const [breakdown, setBreakdown] = useState<QuoteBreakdown | null>(null);
   const [computing, setComputing] = useState(false);
@@ -79,9 +78,8 @@ export default function Home() {
           diameterMm: diameter,
           lengthBelowHeadMm: lengthMm,
           configuration,
-          spoolQtyM: spoolQty,
+          spoolQtyM: config?.defaultSpoolQtyM,
           target,
-          extraIds: selectedExtras,
         }),
       });
       const data = await res.json();
@@ -94,11 +92,7 @@ export default function Home() {
   useEffect(() => {
     if (rates && config) computeQuote();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rates, config, type, diameter, lengthMm, configuration, target, selectedExtras, spoolQty]);
-
-  function toggleExtra(id: string) {
-    setSelectedExtras((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
+  }, [rates, config, type, diameter, lengthMm, configuration, target]);
 
   return (
     <>
@@ -123,7 +117,6 @@ export default function Home() {
         {warnings.length > 0 && (
           <div className="warn" style={{ marginTop: 12 }}>
             {warnings.map((w, i) => <div key={i}>{w}</div>)}
-            Go to Admin settings to enter rates manually if auto-fetch keeps failing.
           </div>
         )}
       </div>
@@ -147,10 +140,6 @@ export default function Home() {
             <label>Length below head (mm)</label>
             <input type="number" value={lengthMm} min={0} onChange={(e) => setLengthMm(Number(e.target.value))} />
           </div>
-          <div className="field">
-            <label>Assumed order size (m, sets tier)</label>
-            <input type="number" value={spoolQty} min={1} onChange={(e) => setSpoolQty(Number(e.target.value))} />
-          </div>
         </div>
 
         <div className="grid" style={{ marginTop: 4 }}>
@@ -169,36 +158,13 @@ export default function Home() {
             </div>
           </div>
         </div>
-
-        {config && config.extras.length > 0 && (
-          <div className="field" style={{ marginTop: 8 }}>
-            <label>Additional items</label>
-            {config.extras.map((extra) => (
-              <div className="checkbox-row" key={extra.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedExtras.includes(extra.id)}
-                  onChange={() => toggleExtra(extra.id)}
-                />
-                <span>
-                  {extra.name}{" "}
-                  <span className="subtle">
-                    ({extra.priceIdr > 0 ? fmtIdr(extra.priceIdr) : ""}
-                    {extra.priceIdr > 0 && extra.priceUsd > 0 ? " / " : ""}
-                    {extra.priceUsd > 0 ? fmtUsd(extra.priceUsd) : ""})
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {breakdown && (
         <div className="card">
           <div className="price-display">
             <div className="label">
-              {target === "local" ? "Local selling price" : "Export offer price"}
+              {target === "local" ? "Local cost price (modal)" : "Export selling price"}
               {computing ? " (updating...)" : ""}
             </div>
             <div className="amount">
@@ -209,48 +175,50 @@ export default function Home() {
             </span>
           </div>
 
-          <table className="breakdown-table">
-            <tbody>
-              <tr>
-                <td>Metal price (alloy, {breakdown.mfgTier === "under25" ? "<25" : breakdown.mfgTier === "from25to50" ? "25-49.9" : "≥50"} dbm tier)</td>
-                <td>€{breakdown.totalEurPerG.toFixed(2)}/g</td>
-              </tr>
-              <tr>
-                <td>Wire cost per metre ({configuration}), today's market</td>
-                <td>
-                  {target === "local" ? fmtIdr(breakdown.marketRateFinal) : fmtUsd(breakdown.marketRateFinal)}
-                </td>
-              </tr>
-              {breakdown.stockRatePerMeter !== null && (
+          <button
+            className="btn secondary"
+            style={{ width: "100%", marginBottom: showDetails ? 12 : 0 }}
+            onClick={() => setShowDetails((s) => !s)}
+          >
+            {showDetails ? "Hide calculation" : "Show calculation"}
+          </button>
+
+          {showDetails && (
+            <table className="breakdown-table">
+              <tbody>
                 <tr>
-                  <td>Wire cost per metre, held stock</td>
-                  <td>{fmtIdr(breakdown.stockRatePerMeter)}</td>
+                  <td>Metal price (alloy, {breakdown.mfgTier === "under25" ? "<25" : breakdown.mfgTier === "from25to50" ? "25-49.9" : "≥50"} dbm tier)</td>
+                  <td>€{breakdown.totalEurPerG.toFixed(2)}/g</td>
                 </tr>
-              )}
-              <tr>
-                <td>Scaled to item length ({lengthMm}mm) × handling factor</td>
-                <td>{target === "local" ? fmtIdr(breakdown.scaledWireCost) : fmtUsd(breakdown.scaledWireCost)}</td>
-              </tr>
-              <tr>
-                <td>{target === "local" ? "After local profit" : "After export margin"}</td>
-                <td>{target === "local" ? fmtIdr(breakdown.afterProfitOrMargin) : fmtUsd(breakdown.afterProfitOrMargin)}</td>
-              </tr>
-              <tr>
-                <td>Standard parts (head, cement, holding tube, ceramic)</td>
-                <td>{target === "local" ? fmtIdr(breakdown.standardPartsCost) : fmtUsd(breakdown.standardPartsCost)}</td>
-              </tr>
-              {breakdown.extrasApplied.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.name}</td>
-                  <td>{target === "local" ? fmtIdr(e.priceIdr) : fmtUsd(e.priceUsd)}</td>
+                <tr>
+                  <td>Wire cost per metre ({configuration}), today's market</td>
+                  <td>{target === "local" ? fmtIdr(breakdown.marketRatePerMeter) : fmtUsd(breakdown.marketRatePerMeter)}</td>
                 </tr>
-              ))}
-              <tr className="total">
-                <td>Total</td>
-                <td>{breakdown.currency === "IDR" ? fmtIdr(breakdown.finalPrice) : fmtUsd(breakdown.finalPrice)}</td>
-              </tr>
-            </tbody>
-          </table>
+                {breakdown.stockRatePerMeter !== null && (
+                  <tr>
+                    <td>Wire cost per metre, held stock</td>
+                    <td>{target === "local" ? fmtIdr(breakdown.stockRatePerMeter) : fmtUsd(breakdown.stockRatePerMeter)}</td>
+                  </tr>
+                )}
+                <tr>
+                  <td>Scaled to item length ({lengthMm}mm + {HEAD_ALLOWANCE_MM}mm head allowance) × handling factor</td>
+                  <td>{target === "local" ? fmtIdr(breakdown.scaledWireCost) : fmtUsd(breakdown.scaledWireCost)}</td>
+                </tr>
+                <tr>
+                  <td>{target === "local" ? "After local profit" : "After export margin"}</td>
+                  <td>{target === "local" ? fmtIdr(breakdown.afterProfitOrMargin) : fmtUsd(breakdown.afterProfitOrMargin)}</td>
+                </tr>
+                <tr>
+                  <td>Standard parts (head, cement, holding tube, ceramic)</td>
+                  <td>{target === "local" ? fmtIdr(breakdown.standardPartsCost) : fmtUsd(breakdown.standardPartsCost)}</td>
+                </tr>
+                <tr className="total">
+                  <td>Total</td>
+                  <td>{breakdown.currency === "IDR" ? fmtIdr(breakdown.finalPrice) : fmtUsd(breakdown.finalPrice)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </>
