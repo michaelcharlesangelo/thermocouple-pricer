@@ -223,44 +223,4 @@ export default function AdminPage() {
                   onChange={(n) => setConfig({ ...config, standardPartsIdr: n })} />
               </div>
               <div className="field">
-                <label>Default assumed order size (m)</label>
-                <DecimalField value={config.defaultSpoolQtyM}
-                  onChange={(n) => setConfig({ ...config, defaultSpoolQtyM: n })} />
-                <p className="subtle" style={{ marginTop: 4 }}>Bigger orders unlock a better manufacturing tier - raise this if quoting a large order.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <h2>Stock prices (IDR / meter)</h2>
-            <p className="subtle">
-              Applies to both local and export quotes — compared against today's market wire cost (in IDR),
-              and whichever is higher is used, converted to the display currency as needed. Leave at 0 to
-              always use today's market-calculated price for that spec.
-            </p>
-            <table className="admin-table">
-              <thead><tr><th>Spec</th><th>Stock price (IDR/meter)</th></tr></thead>
-              <tbody>
-                {stockKeys.map((key) => {
-                  const stock = config.stockPrices.find((s) => s.key === key);
-                  return (
-                    <tr key={key}>
-                      <td>{key}</td>
-                      <td>
-                        <ThousandsField value={stock?.idrPerMeter ?? 0} onChange={(n) => updateStock(key, n)} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <button className="btn" onClick={saveConfig} disabled={savingConfig}>
-            {savingConfig ? "Saving..." : "Save all configuration"}
-          </button>
-        </>
-      )}
-    </>
-  );
-}
+                <label>Default assumed order size
