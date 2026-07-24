@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MarketRates, PricingConfig, StockPrice } from "@/lib/pricing";
+import { MarketRates, PricingConfig, StockPrice, ExtraItem } from "@/lib/pricing";
 
 // Plain decimal field that can sit blank while editing instead of forcing "0".
 function DecimalField({
@@ -104,7 +104,7 @@ export default function AdminPage() {
     const data = await res.json();
     setRates(data.rates);
     setMessage(
-      data.warnings?.length ? `Refreshed with notes: ${data.warnings.join(" | ")}` : "Refreshed from live sources."
+      data.warnings?.length ? `Refreshed with notes: ${data.warnings.join(" | ")}` : "FX rate refreshed."
     );
     setRefreshing(false);
   }
@@ -135,6 +135,22 @@ export default function AdminPage() {
     setConfig({ ...config, stockPrices });
   }
 
+  function updateExtra(id: string, patch: Partial<ExtraItem>) {
+    if (!config) return;
+    setConfig({ ...config, extras: config.extras.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
+  }
+
+  function addExtra() {
+    if (!config) return;
+    const id = "extra_" + Date.now();
+    setConfig({ ...config, extras: [...config.extras, { id, name: "New item", priceIdr: 0, priceUsd: 0 }] });
+  }
+
+  function removeExtra(id: string) {
+    if (!config) return;
+    setConfig({ ...config, extras: config.extras.filter((e) => e.id !== id) });
+  }
+
   const stockKeys = [
     "S-0.30", "S-0.35", "S-0.40", "S-0.45", "S-0.50",
     "R-0.30", "R-0.35", "R-0.40", "R-0.45", "R-0.50",
@@ -156,9 +172,9 @@ export default function AdminPage() {
       <div className="card">
         <h2>Market rates</h2>
         <p className="subtle">
-          "Refresh rates" auto-fetches USD/EUR and USD/IDR live (no signup needed). Platinum and Rhodium
-          are entered manually below unless you've configured a Pt/Rh auto-fetch key (see README) - manual
-          values are used until the next refresh either way.
+          "Refresh FX rate" fetches USD/EUR and USD/IDR live (no signup needed). Platinum and Rhodium
+          are always entered manually here on the admin page — by design, only admin can change the
+          metal basis; the FX refresh doesn't touch them.
         </p>
         {rates && (
           <div className="grid">
@@ -185,7 +201,7 @@ export default function AdminPage() {
             {savingRates ? "Saving..." : "Save manual rates"}
           </button>
           <button className="btn secondary" onClick={refreshRates} disabled={refreshing}>
-            {refreshing ? "Refreshing..." : "Refresh from live sources"}
+            {refreshing ? "Refreshing..." : "Refresh FX rate"}
           </button>
         </div>
         {rates && <p className="subtle" style={{ marginTop: 8 }}>Last updated: {new Date(rates.updatedAt).toLocaleString()} ({rates.source})</p>}
@@ -195,17 +211,18 @@ export default function AdminPage() {
         <>
           <div className="card">
             <h2>Pricing parameters</h2>
-            <div className="grid">
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
               <div className="field">
-                <label>Handling factor — today's market</label>
+                <label>Handling factor (market)</label>
                 <DecimalField value={config.wireHandlingFactorMarket} step="0.01"
                   onChange={(n) => setConfig({ ...config, wireHandlingFactorMarket: n })} />
+                <p className="subtle" style={{ marginTop: 4 }}>Set to 1 for no added factor.</p>
               </div>
               <div className="field">
-                <label>Handling factor — held stock</label>
+                <label>Handling factor (stock)</label>
                 <DecimalField value={config.wireHandlingFactorStock} step="0.01"
                   onChange={(n) => setConfig({ ...config, wireHandlingFactorStock: n })} />
-                <p className="subtle" style={{ marginTop: 4 }}>Set to 1 for no added factor when using stock wire.</p>
+                <p className="subtle" style={{ marginTop: 4 }}>Set to 1 for no added factor.</p>
               </div>
               <div className="field">
                 <label>Local profit (%)</label>
@@ -254,6 +271,28 @@ export default function AdminPage() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          <div className="card">
+            <h2>Additional items ("tambahan")</h2>
+            <p className="subtle">
+              These show up as checkboxes on the calculator page. For one-off items not worth saving here,
+              sales can also type a custom item directly on the calculator.
+            </p>
+            <table className="admin-table">
+              <thead><tr><th>Name</th><th>Local price (IDR)</th><th>Export price (USD)</th><th></th></tr></thead>
+              <tbody>
+                {config.extras.map((extra) => (
+                  <tr key={extra.id}>
+                    <td><input type="text" value={extra.name} onChange={(e) => updateExtra(extra.id, { name: e.target.value })} /></td>
+                    <td><ThousandsField value={extra.priceIdr} onChange={(n) => updateExtra(extra.id, { priceIdr: n })} /></td>
+                    <td><DecimalField value={extra.priceUsd} onChange={(n) => updateExtra(extra.id, { priceUsd: n })} step="0.01" /></td>
+                    <td><button className="btn secondary" onClick={() => removeExtra(extra.id)}>Remove</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className="btn secondary" style={{ marginTop: 10 }} onClick={addExtra}>+ Add item</button>
           </div>
 
           <button className="btn" onClick={saveConfig} disabled={savingConfig}>
