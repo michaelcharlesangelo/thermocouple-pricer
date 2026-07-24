@@ -41,33 +41,34 @@ export async function setRates(rates: MarketRates): Promise<void> {
 }
 
 export async function getConfig(): Promise<PricingConfig> {
-  const stored = await getValue<Record<string, unknown> | null>(CONFIG_KEY, null);
+  const stored = await getValue<(Record<string, unknown>) | null>(CONFIG_KEY, null);
   if (!stored) return DEFAULT_CONFIG;
 
   // Migrate configs saved before this update: the old single
-  // "wireHandlingFactor" becomes both new market/stock factors if present,
-  // and any now-removed fields (lengthAllowanceMm, extras) are simply
-  // dropped. Anything not present in the stored data falls back to
-  // DEFAULT_CONFIG so old saves don't break on the new fields.
-  const legacyFactor = typeof stored.wireHandlingFactor === "number" ? stored.wireHandlingFactor : undefined;
+  // "wireHandlingFactor" becomes both new market/stock factors if present.
+  // Now-removed fields (lengthAllowanceMm, extras) are simply never copied
+  // over below, rather than needing to be explicitly deleted.
+  const legacyFactor = typeof stored.wireHandlingFactor === "number" ? (stored.wireHandlingFactor as number) : undefined;
+
+  const num = (v: unknown, fallback: number): number => (typeof v === "number" ? v : fallback);
 
   const merged: PricingConfig = {
-    ...DEFAULT_CONFIG,
-    ...stored,
-    wireHandlingFactorMarket:
-      (stored.wireHandlingFactorMarket as number | undefined) ??
-      legacyFactor ??
-      DEFAULT_CONFIG.wireHandlingFactorMarket,
-    wireHandlingFactorStock:
-      (stored.wireHandlingFactorStock as number | undefined) ??
-      legacyFactor ??
-      DEFAULT_CONFIG.wireHandlingFactorStock,
-    stockPrices: Array.isArray(stored.stockPrices) ? (stored.stockPrices as PricingConfig["stockPrices"]) : DEFAULT_CONFIG.stockPrices,
+    wireHandlingFactorMarket: num(
+      stored.wireHandlingFactorMarket,
+      legacyFactor ?? DEFAULT_CONFIG.wireHandlingFactorMarket
+    ),
+    wireHandlingFactorStock: num(
+      stored.wireHandlingFactorStock,
+      legacyFactor ?? DEFAULT_CONFIG.wireHandlingFactorStock
+    ),
+    localProfitPct: num(stored.localProfitPct, DEFAULT_CONFIG.localProfitPct),
+    exportMarginPct: num(stored.exportMarginPct, DEFAULT_CONFIG.exportMarginPct),
+    standardPartsIdr: num(stored.standardPartsIdr, DEFAULT_CONFIG.standardPartsIdr),
+    defaultSpoolQtyM: num(stored.defaultSpoolQtyM, DEFAULT_CONFIG.defaultSpoolQtyM),
+    stockPrices: Array.isArray(stored.stockPrices)
+      ? (stored.stockPrices as PricingConfig["stockPrices"])
+      : DEFAULT_CONFIG.stockPrices,
   };
-  // Drop any leftover legacy keys so they don't linger in what gets saved next
-  delete (merged as Record<string, unknown>).wireHandlingFactor;
-  delete (merged as Record<string, unknown>).lengthAllowanceMm;
-  delete (merged as Record<string, unknown>).extras;
 
   return merged;
 }
