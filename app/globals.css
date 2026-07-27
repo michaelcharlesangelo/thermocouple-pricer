@@ -145,7 +145,7 @@ select, input[type="number"], input[type="text"], input[type="password"] {
   font-size: 0.85rem;
 }
 .breakdown-table td { padding: 6px 4px; border-bottom: 1px solid var(--panel-muted); }
-.breakdown-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.breakdown-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .breakdown-table tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; padding-top: 10px; }
 
 .rate-strip {
@@ -249,7 +249,7 @@ table.admin-table input { padding: 6px 8px; font-size: 0.85rem; }
 
 @media (max-width: 480px) {
   .app-shell { padding: 16px 12px 40px; }
-  .topbar { flex-wrap: nowrap; margin-bottom: 16px; align-items: flex-start; }
+  .topbar { flex-wrap: wrap; margin-bottom: 16px; align-items: flex-start; }
   .brand { flex-direction: column; align-items: flex-start; gap: 6px; flex: 1 1 auto; min-width: 0; }
   .topbar h1 { font-size: 1rem; white-space: normal; overflow: visible; text-overflow: unset; line-height: 1.3; }
   .topbar img { height: 24px !important; }
