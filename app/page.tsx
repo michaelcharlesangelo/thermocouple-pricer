@@ -311,7 +311,7 @@ export default function Home() {
         <div className="card" style={{ maxWidth: 360, margin: "40px auto 0" }}>
           <h2>Sign in</h2>
           <div className="field">
-            <label>Your name</label>
+            <label>Username</label>
             <input type="text" value={nameInput} onChange={(e) => setNameInput(e.target.value)} autoFocus />
           </div>
           <div className="field" style={{ marginTop: 10 }}>
